@@ -1,0 +1,63 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: zabbix-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: zabbix_root_pwd
+      MYSQL_DATABASE: zabbix
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix_pwd
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_bin
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - zbx-net
+
+  zabbix-server:
+    image: zabbix/zabbix-server-mysql:alpine-7.0-latest
+    container_name: zabbix-server
+    restart: unless-stopped
+    environment:
+      DB_SERVER_HOST: mysql
+      MYSQL_DATABASE: zabbix
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix_pwd
+      MYSQL_ROOT_PASSWORD: zabbix_root_pwd
+      ZBX_STARTPOLLERS: 10
+    depends_on:
+      - mysql
+    ports:
+      - "10052:10051"   # host:container
+    networks:
+      - zbx-net
+
+  zabbix-web:
+    image: zabbix/zabbix-web-apache-mysql:alpine-7.0-latest
+    container_name: zabbix-web
+    restart: unless-stopped
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      DB_SERVER_HOST: mysql
+      MYSQL_DATABASE: zabbix
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix_pwd
+      PHP_TZ: "Europe/Warsaw"
+    depends_on:
+      - mysql
+      - zabbix-server
+    ports:
+      - "8080:8080"
+    networks:
+      - zbx-net
+
+volumes:
+  db-data:
+
+networks:
+  zbx-net:
+    driver: bridge
