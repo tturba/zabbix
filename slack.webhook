@@ -1,0 +1,34 @@
+try {
+  var params = JSON.parse(value);
+  var sev = ['#97AAB3','#7499FF','#FFC859','#FFA059','#E97659','#E45959'][params.severity];
+
+  var payload = {
+    channel: params.channel || '#incident',
+    attachments: [{
+      color: sev,
+      title: params.eventName,
+      title_link: params.zabbixUrl + '/tr_events.php?triggerid=' + params.triggerId
+                  + '&eventid=' + params.eventId,
+      fields: [
+        {title: 'Host', value: params.host, short: true},
+        {title: 'Severity', value: params.severityName, short: true},
+        {title: 'Tags', value: params.tags, short: false}
+      ],
+      actions: [
+        {type:'button', text:'✅ Acknowledge',
+         url: params.zabbixUrl + '/zabbix.php?action=acknowledge.edit&eventids[]=' + params.eventId,
+         style:'primary'},
+        {type:'button', text:'📖 Runbook',
+         url: params.runbookUrl}
+      ],
+      footer: 'Zabbix • ' + params.host,
+      ts: Math.floor(Date.now()/1000)
+    }]
+  };
+
+  var req = new HttpRequest();
+  req.addHeader('Content-Type: application/json');
+  var resp = req.post(params.slackWebhook, JSON.stringify(payload));
+  if (req.getStatus() !== 200) throw 'Slack err: ' + resp;
+  return 'OK';
+} catch (e) { Zabbix.log(4, e); throw e; }
