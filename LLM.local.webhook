@@ -1,0 +1,50 @@
+
+// Zabbix Media Type -> Webhook (JavaScript)
+try {
+  var p = JSON.parse(value);
+  var llmUrl = p.endpoint;  // np. http://ollama:11434/v1/chat/completions
+  var sysPrompt = "You are SRE assistant. Reply JSON only: " +
+    "{summary, likely_cause, suggested_action, confidence, is_likely_noise}.";
+  var userPrompt = "Event: " + p.eventName + "\nHost: " + p.host +
+    "\nSeverity: " + p.severity + "\nTags: " + p.tags +
+    "\nLast value: " + p.itemLast;
+
+  // 1) zapytaj LLM
+  var req = new HttpRequest();
+  req.addHeader('Content-Type: application/json');
+  req.addHeader('Authorization: Bearer ' + p.apiKey);
+  var llmResp = req.post(llmUrl, JSON.stringify({
+    model: p.model || 'llama3.1:8b',
+    messages: [
+      {role:'system', content: sysPrompt},
+      {role:'user', content: userPrompt}
+    ],
+    temperature: 0.1,
+    response_format: {type: 'json_object'}
+  }));
+  if (req.getStatus() !== 200) throw 'LLM err: ' + llmResp;
+  var ai = JSON.parse(JSON.parse(llmResp).choices[0].message.content);
+
+  // 2) walidacja - jesli halucynacja, zatrzymaj
+  if (!ai.summary || ai.confidence === 'low') {
+    Zabbix.log(3, 'AI triage low confidence, skipping ack');
+    return JSON.stringify({skipped: true});
+  }
+
+  // 3) ack + komentarz przez Zabbix API
+  var ack = new HttpRequest();
+  ack.addHeader('Content-Type: application/json-rpc');
+  ack.addHeader('Authorization: Bearer ' + p.zbxToken);
+  ack.post(p.zbxApi, JSON.stringify({
+    jsonrpc:'2.0', id:1, method:'event.acknowledge',
+    params: {
+      eventids: p.eventId,
+      action: 6,  // 2(ack) + 4(message)
+      message: '[AI Triage] ' + ai.summary +
+               '\nCause: ' + ai.likely_cause +
+               '\nNext: ' + ai.suggested_action +
+               '\nConfidence: ' + ai.confidence
+    }
+  }));
+  return 'OK';
+} catch (e) { Zabbix.log(4, 'AI triage err: ' + e); throw e; }
